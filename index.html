@@ -291,7 +291,7 @@ html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-seri
       <div class="ar-nocam" id="ar-nocam">
         <div class="ar-nocam-icon">📷</div>
         <div class="ar-nocam-title">AR Kamera</div>
-        <div class="ar-nocam-body">Sieh Gipfel-Labels direkt über dem Kamerabild.<br>GPS muss aktiv sein.</div>
+        <div class="ar-nocam-body">Sieh Gipfel-Labels direkt über dem Kamerabild.<br>GPS muss aktiv sein.<br><br>💡 <strong>Tipp:</strong> Nach dem Start das Handy in einer 8er-Bewegung schwenken um den Kompass zu kalibrieren.</div>
         <button class="ar-start-btn" onclick="startAR()">Kamera starten</button>
       </div>
 
@@ -733,19 +733,38 @@ async function startAR() {
 
 function setupOrientation() {
   hasOrientationAPI = true;
+  // Listen to absolute first (Android), then deviceorientation (iOS uses webkitCompassHeading)
   window.addEventListener('deviceorientationabsolute', onOrientation, true);
   window.addEventListener('deviceorientation', onOrientation, true);
+  // Show debug info briefly
+  setTimeout(() => {
+    const hud = document.getElementById('ar-heading-val');
+    if(hud && hud.textContent === '—°') {
+      showToast('📡 Kein Kompass-Signal – bitte Handy kalibrieren (8er-Bewegung)');
+    }
+  }, 3000);
 }
 
+let usingAbsolute = false;
+
 function onOrientation(e) {
+  // Ignore non-absolute deviceorientation if we already have absolute
+  if(usingAbsolute && !e.isTrusted) return;
+  if(e.type === 'deviceorientationabsolute') usingAbsolute = true;
+  if(e.type === 'deviceorientation' && usingAbsolute) return;
+
   let h = 0;
-  if(e.webkitCompassHeading !== undefined) {
-    // iOS – webkitCompassHeading is 0=N, clockwise
+  if(e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
+    // iOS Safari – most reliable
     h = e.webkitCompassHeading;
-  } else if(e.absolute && e.alpha !== null) {
-    h = 360 - e.alpha;
+  } else if(e.absolute === true && e.alpha !== null) {
+    // Android with absolute orientation
+    h = (360 - e.alpha) % 360;
   } else if(e.alpha !== null) {
-    h = 360 - e.alpha;
+    // Fallback – may drift
+    h = (360 - e.alpha) % 360;
+  } else {
+    return; // no data yet
   }
   arHeading = (h + 360) % 360;
 }
@@ -778,7 +797,7 @@ function renderAR() {
   peaks.forEach(peak => {
     const bearing = getBearing(userPos.lat, userPos.lon, peak.lat, peak.lon);
     const d = dist(userPos.lat, userPos.lon, peak.lat, peak.lon);
-    if(d > 80000) return; // skip peaks > 80km away
+    if(d > 10000) return; // skip peaks > 10km away
 
     // Angular difference from center heading
     let diff = bearing - arHeading;
