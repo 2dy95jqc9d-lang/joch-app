@@ -696,12 +696,8 @@ function initARScreen() {
 }
 
 async function startAR() {
-  // Request camera
   try {
-    arStream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment', width:{ideal:1280}, height:{ideal:720}},
-      audio: false
-    });
+    arStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
     document.getElementById('ar-video').srcObject = arStream;
     document.getElementById('ar-nocam').style.display = 'none';
     document.getElementById('ar-hud').style.display = 'flex';
@@ -711,18 +707,33 @@ async function startAR() {
     return;
   }
 
-  // Try device orientation (compass) – works on mobile
-  if(typeof DeviceOrientationEvent !== 'undefined') {
-    // iOS 13+ needs permission
-    if(typeof DeviceOrientationEvent.requestPermission === 'function') {
-      try {
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if(perm === 'granted') setupOrientation();
-        else showDesktopSlider();
-      } catch { showDesktopSlider(); }
-    } else {
-      setupOrientation();
+  // iOS 13+ requires permission via user gesture
+  if(typeof DeviceOrientationEvent !== 'undefined' &&
+     typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if(perm === 'granted') {
+        setupOrientation();
+        showToast('🧭 Kompass aktiv!');
+      } else {
+        showToast('🧭 Kompass verweigert – manueller Modus');
+        showDesktopSlider();
+      }
+    } catch(e) {
+      showDesktopSlider();
     }
+  } else if(typeof DeviceOrientationEvent !== 'undefined') {
+    // Android – no permission needed, just listen
+    setupOrientation();
+    // Check if we actually get data
+    let gotData = false;
+    const test = (e) => { if(e.alpha !== null) gotData = true; };
+    window.addEventListener('deviceorientation', test);
+    setTimeout(() => {
+      window.removeEventListener('deviceorientation', test);
+      if(gotData) showToast('🧭 Kompass aktiv!');
+      else { showToast('🧭 Kein Kompass – manueller Modus'); showDesktopSlider(); }
+    }, 2000);
   } else {
     showDesktopSlider();
   }
@@ -748,25 +759,30 @@ function setupOrientation() {
 let usingAbsolute = false;
 
 function onOrientation(e) {
-  // Ignore non-absolute deviceorientation if we already have absolute
-  if(usingAbsolute && !e.isTrusted) return;
+  // Prioritise absolute events
   if(e.type === 'deviceorientationabsolute') usingAbsolute = true;
   if(e.type === 'deviceorientation' && usingAbsolute) return;
 
-  let h = 0;
-  if(e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null) {
-    // iOS Safari – most reliable
+  let h = null;
+  let src = '?';
+
+  if(e.webkitCompassHeading !== undefined && e.webkitCompassHeading !== null && !isNaN(e.webkitCompassHeading)) {
     h = e.webkitCompassHeading;
-  } else if(e.absolute === true && e.alpha !== null) {
-    // Android with absolute orientation
+    src = 'iOS';
+  } else if(e.absolute === true && e.alpha !== null && !isNaN(e.alpha)) {
     h = (360 - e.alpha) % 360;
-  } else if(e.alpha !== null) {
-    // Fallback – may drift
+    src = 'ABS';
+  } else if(e.alpha !== null && !isNaN(e.alpha)) {
     h = (360 - e.alpha) % 360;
-  } else {
-    return; // no data yet
+    src = 'REL';
   }
+
+  if(h === null) return;
   arHeading = (h + 360) % 360;
+
+  // Update debug display
+  const srcEl = document.getElementById('ar-compass-src');
+  if(srcEl) srcEl.textContent = src;
 }
 
 function showDesktopSlider() {
@@ -775,6 +791,8 @@ function showDesktopSlider() {
 
 function setManualHeading(val) {
   arHeading = parseFloat(val);
+  const srcEl = document.getElementById('ar-compass-src');
+  if(srcEl) srcEl.textContent = 'MAN';
 }
 
 // Main AR render loop
