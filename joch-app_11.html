@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Joch – Gipfel claimen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+:root{
+  --blue:#2563eb;--blue-l:#60a5fa;--blue-d:#1d4ed8;
+  --green:#16a34a;--green-l:#4ade80;
+  --gold:#facc15;--teal:#34d399;--purple:#9333ea;
+  --bg:#070c16;--surf:#0d1525;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:rgba(255,255,255,0.9);--muted:rgba(255,255,255,0.45);--hint:rgba(255,255,255,0.22);
+}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;height:100%;overflow:hidden;}
+
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh;max-width:430px;margin:0 auto;overflow:hidden;}
+.status-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 20px 8px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);flex:0 0 auto;background:var(--bg);z-index:100;}
+.wordmark{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.wordmark span{color:var(--blue-l);}
+.screen-container{flex:1 1 0;min-height:0;position:relative;overflow:hidden;}
+.nav{display:flex;background:rgba(7,12,22,0.98);border-top:0.5px solid var(--border);padding:8px 0 max(16px,env(safe-area-inset-bottom));flex:0 0 auto;z-index:100;}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;padding:5px 0;}
+.nav-icon{font-size:20px;line-height:1;}
+.nav-label{font-size:9px;font-weight:500;color:var(--muted);}
+.nav-item.on .nav-label{color:var(--blue-l);}
+.niw{position:relative;display:inline-block;}
+.notif-dot{width:6px;height:6px;border-radius:50%;background:#ef4444;position:absolute;top:-2px;right:-2px;display:none;}
+.screen{position:absolute;inset:0;display:none;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* MAP */
+#s-map{background:var(--bg);}
+#map{width:100%;height:100%;}
+.leaflet-container{background:#0a1520!important;font-family:'DM Sans',sans-serif;}
+
+/* MARKERS */
+.joch-dot{
+  width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;border:1.5px solid transparent;
+  box-shadow:0 2px 6px rgba(0,0,0,0.5);
+  cursor:pointer;transition:transform 0.15s;
+}
+.joch-dot:hover{transform:scale(1.2);}
+.joch-dot.unclaimed{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.2);font-size:8px;color:rgba(255,255,255,0.35);}
+.joch-dot.claimed{background:var(--blue);border-color:var(--blue-l);font-size:11px;}
+.joch-dot.nearby{background:rgba(250,204,21,0.2);border-color:var(--gold);font-size:11px;animation:pgold 2s ease-in-out infinite;}
+@keyframes pgold{0%,100%{box-shadow:0 0 0 0 rgba(250,204,21,0.4)}50%{box-shadow:0 0 0 8px rgba(250,204,21,0)}}
+
+/* LABELS – text shadow only, no background box */
+.joch-label{
+  position:absolute;
+  left:50%;
+  top:calc(100% + 3px);
+  transform:translateX(-50%);
+  white-space:nowrap;font-size:9px;font-weight:600;
+  color:rgba(255,255,255,0.95);
+  text-shadow:0 1px 4px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.9);
+  letter-spacing:0.02em;
+  pointer-events:none;
+  z-index:5;
+  padding:1px 3px;
+}
+
+/* MAP OVERLAY */
+.map-top{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-start;z-index:50;pointer-events:none;}
+.map-top>*{pointer-events:all;}
+.gps-pill{background:rgba(7,12,22,0.88);backdrop-filter:blur(10px);border:0.5px solid var(--border2);border-radius:12px;padding:8px 12px;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+.gps-dot{width:7px;height:7px;border-radius:50%;background:#ef4444;flex-shrink:0;}
+.gps-dot.on{background:var(--green-l);animation:blink 2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
+.loc-btn{background:rgba(7,12,22,0.88);backdrop-filter:blur(10px);border:0.5px solid var(--border2);border-radius:12px;padding:9px 13px;font-size:12px;color:var(--text);cursor:pointer;display:flex;align-items:center;gap:5px;}
+
+/* POPUP */
+.leaflet-popup-content-wrapper{background:rgba(10,18,30,0.97)!important;border:0.5px solid var(--border2)!important;border-radius:16px!important;backdrop-filter:blur(14px);box-shadow:0 8px 32px rgba(0,0,0,0.6)!important;color:white!important;padding:0!important;}
+.leaflet-popup-content{margin:0!important;padding:16px 18px!important;min-width:200px;}
+.leaflet-popup-tip-container{display:none!important;}
+.leaflet-popup-close-button{color:rgba(255,255,255,0.45)!important;top:10px!important;right:14px!important;font-size:18px!important;}
+.popup-name{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:2px;}
+.popup-ele{font-size:20px;font-weight:700;font-family:'Syne',sans-serif;color:var(--blue-l);margin-bottom:4px;}
+.popup-meta{font-size:11px;color:var(--muted);margin-bottom:12px;}
+.popup-stats{display:flex;gap:7px;margin-bottom:12px;}
+.pstat{background:rgba(255,255,255,0.06);border-radius:8px;padding:7px 10px;flex:1;text-align:center;}
+.pstat-val{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;}
+.pstat-key{font-size:9px;color:var(--muted);margin-top:1px;}
+.popup-btn{width:100%;padding:11px;border:none;border-radius:10px;color:white;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:background 0.15s;}
+.popup-btn.can{background:var(--blue);}
+.popup-btn.can:hover{background:var(--blue-d);}
+.popup-btn.done{background:var(--green);}
+.popup-btn.far{background:rgba(255,255,255,0.07);color:var(--muted);cursor:default;}
+
+/* RANKING */
+#s-ranking{background:var(--bg);overflow:hidden;}
+.rank-header{padding:16px 16px 12px;flex-shrink:0;background:linear-gradient(180deg,#0f1e35 0%,var(--bg) 100%);}
+.rank-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.5px;}
+.rank-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.rank-tabs{display:flex;margin-top:14px;background:rgba(255,255,255,0.05);border-radius:10px;padding:3px;gap:0;}
+.rtab{flex:1;padding:7px;text-align:center;font-size:11px;font-weight:500;color:var(--muted);border-radius:8px;cursor:pointer;transition:all 0.15s;}
+.rtab.on{background:rgba(37,99,235,0.25);color:var(--blue-l);}
+.rank-list{flex:1;overflow-y:auto;padding:12px 16px;-webkit-overflow-scrolling:touch;}
+.rank-item{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:0.5px solid var(--border);}
+.rank-item:last-child{border:none;}
+.rank-pos{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;width:28px;text-align:center;flex-shrink:0;}
+.rank-av{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.rank-info{flex:1;}
+.rank-name{font-size:14px;font-weight:500;}
+.rank-detail{font-size:10px;color:var(--muted);margin-top:2px;}
+.rank-score{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;}
+.rank-lbl{font-size:9px;color:var(--muted);text-align:right;}
+
+/* PROFIL */
+#s-profil{background:var(--bg);}
+.profil-scroll{flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch;}
+.profil-av{width:60px;height:60px;border-radius:50%;background:rgba(37,99,235,0.2);border:2px solid rgba(96,165,250,0.35);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--blue-l);margin-bottom:10px;}
+.profil-name{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.profil-sub{font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:20px;}
+.profil-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px;}
+.pstat2{background:rgba(255,255,255,0.05);border:0.5px solid var(--border);border-radius:12px;padding:14px 10px;text-align:center;}
+.pstat2-val{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;}
+.pstat2-key{font-size:10px;color:var(--muted);margin-top:3px;}
+.sec-title{font-size:10px;font-weight:500;color:var(--hint);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:12px;}
+.claim-row{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:0.5px solid var(--border);}
+.claim-row:last-child{border:none;}
+.claim-ico{width:36px;height:36px;border-radius:50%;background:rgba(37,99,235,0.15);border:1.5px solid rgba(96,165,250,0.25);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.claim-name{font-size:13px;font-weight:500;}
+.claim-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+.claim-ele{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--blue-l);margin-left:auto;flex-shrink:0;}
+.empty-state{font-size:13px;color:var(--muted);padding:32px 0;text-align:center;line-height:1.8;}
+
+/* LOADING */
+.loading{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;gap:16px;}
+.loading-wm{font-family:'Syne',sans-serif;font-size:36px;font-weight:800;letter-spacing:-1px;}
+.loading-wm span{color:var(--blue-l);}
+.loading-bar{width:120px;height:2px;background:rgba(255,255,255,0.1);border-radius:1px;overflow:hidden;}
+.loading-fill{height:100%;background:var(--blue-l);border-radius:1px;animation:lfill 2.5s ease forwards;}
+@keyframes lfill{0%{width:0}70%{width:85%}100%{width:100%}}
+.loading-txt{font-size:12px;color:var(--muted);}
+
+/* TOAST */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(10,18,30,0.97);backdrop-filter:blur(12px);border:0.5px solid var(--border2);border-radius:12px;padding:11px 18px;font-size:13px;font-weight:500;z-index:500;white-space:nowrap;animation:tin 0.3s ease;pointer-events:none;}
+@keyframes tin{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* AR SCREEN */
+#s-ar{background:#000;overflow:hidden;}
+.ar-video-wrap{position:absolute;inset:0;z-index:1;}
+#ar-video{width:100%;height:100%;object-fit:cover;}
+.ar-overlay{position:absolute;inset:0;z-index:2;pointer-events:none;}
+
+/* AR HUD top */
+.ar-hud-top{
+  position:absolute;top:12px;left:12px;right:12px;
+  display:flex;justify-content:space-between;gap:8px;
+  z-index:10;pointer-events:none;
+}
+.ar-pill{
+  background:rgba(0,0,0,0.5);backdrop-filter:blur(12px);
+  border:0.5px solid rgba(255,255,255,0.15);
+  border-radius:12px;padding:8px 12px;font-size:10px;color:white;
+}
+.ar-pill-lbl{color:rgba(255,255,255,0.45);font-size:9px;margin-bottom:2px;}
+.ar-pill-val{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;}
+
+/* Compass bar */
+.ar-compass{
+  position:absolute;top:80px;left:50%;transform:translateX(-50%);
+  z-index:10;pointer-events:none;
+}
+
+/* Peak labels in AR */
+.ar-peak-label{
+  position:absolute;
+  display:flex;flex-direction:column;align-items:center;
+  transform:translateX(-50%);
+  pointer-events:none;
+  transition:opacity 0.3s ease;
+  z-index:8;
+}
+.ar-peak-card{
+  background:rgba(0,0,0,0.55);backdrop-filter:blur(10px);
+  border:0.5px solid rgba(255,255,255,0.2);
+  border-radius:10px;padding:6px 12px;
+  text-align:center;margin-bottom:3px;
+  white-space:nowrap;
+}
+.ar-peak-card.claimed{border-color:rgba(96,165,250,0.5);background:rgba(37,99,235,0.25);}
+.ar-peak-nm{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;color:white;}
+.ar-peak-el{font-size:9px;color:rgba(255,255,255,0.6);margin-top:1px;}
+.ar-peak-line{width:1px;height:30px;background:linear-gradient(180deg,rgba(255,255,255,0.5) 0%,transparent 100%);}
+.ar-peak-dot{width:6px;height:6px;border-radius:50%;background:white;opacity:0.7;margin-top:-1px;box-shadow:0 0 6px rgba(255,255,255,0.8);}
+
+/* Crosshair */
+.ar-crosshair{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:9;pointer-events:none;opacity:0.4;
+}
+
+/* Desktop compass slider */
+.ar-slider-wrap{
+  position:absolute;bottom:100px;left:20px;right:20px;
+  z-index:10;
+}
+.ar-slider-lbl{font-size:10px;color:rgba(255,255,255,0.5);text-align:center;margin-bottom:6px;}
+#ar-heading-slider{width:100%;accent-color:var(--blue-l);}
+
+/* No camera message */
+.ar-nocam{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;
+  background:var(--bg);z-index:5;text-align:center;padding:40px;
+}
+.ar-nocam-icon{font-size:48px;}
+.ar-nocam-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;}
+.ar-nocam-body{font-size:13px;color:var(--muted);line-height:1.6;}
+.ar-start-btn{
+  margin-top:8px;padding:12px 24px;background:var(--blue);
+  border:none;border-radius:12px;color:white;
+  font-family:'Syne',sans-serif;font-weight:700;font-size:14px;cursor:pointer;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="loading" id="loading">
+    <div class="loading-wm">Joch<span>.</span></div>
+    <div class="loading-bar"><div class="loading-fill"></div></div>
+    <div class="loading-txt" id="ltxt">Gipfeldaten werden geladen…</div>
+  </div>
+
+  <div class="status-bar">
+    <div class="wordmark">Joch<span>.</span></div>
+  </div>
+
+  <div class="screen-container">
+
+    <div class="screen active" id="s-map">
+      <div id="map" style="flex:1;"></div>
+      <div class="map-top">
+        <div class="gps-pill">
+          <div class="gps-dot" id="gps-dot"></div>
+          <span id="gps-txt">GPS wird gesucht…</span>
+        </div>
+        <button class="loc-btn" onclick="centerOnMe()">📍 Hier</button>
+      </div>
+    </div>
+
+    <div class="screen" id="s-ranking">
+      <div class="rank-header">
+        <div class="rank-title">Ranking</div>
+        <div class="rank-sub" id="rank-sub">Deine Claims</div>
+        <div class="rank-tabs">
+          <div class="rtab on" onclick="switchTab('gipfel',this)">🏔 Gipfel</div>
+          <div class="rtab" onclick="switchTab('hoehe',this)">📏 Höhe</div>
+          <div class="rtab" onclick="switchTab('besuche',this)">🔁 Besuche</div>
+        </div>
+      </div>
+      <div class="rank-list" id="rank-list"></div>
+    </div>
+
+    <div class="screen" id="s-profil">
+      <div class="profil-scroll">
+        <div class="profil-av">N</div>
+        <div class="profil-name">Nic</div>
+        <div class="profil-sub">Innsbruck · Tirol 🏔</div>
+        <div class="profil-stats">
+          <div class="pstat2"><div class="pstat2-val" id="p-gipfel">0</div><div class="pstat2-key">Gipfel</div></div>
+          <div class="pstat2"><div class="pstat2-val" id="p-besuche">0</div><div class="pstat2-key">Besuche</div></div>
+          <div class="pstat2"><div class="pstat2-val" id="p-hoehe">—</div><div class="pstat2-key">Höchster</div></div>
+        </div>
+        <div class="sec-title">Meine Claims</div>
+        <div id="claims-list"></div>
+      </div>
+    </div>
+
+
+    <!-- AR -->
+    <div class="screen" id="s-ar">
+      <!-- Camera -->
+      <div class="ar-video-wrap">
+        <video id="ar-video" autoplay playsinline muted></video>
+      </div>
+
+      <!-- No camera overlay -->
+      <div class="ar-nocam" id="ar-nocam">
+        <div class="ar-nocam-icon">📷</div>
+        <div class="ar-nocam-title">AR Kamera</div>
+        <div class="ar-nocam-body">Sieh Gipfel-Labels direkt über dem Kamerabild.<br>GPS muss aktiv sein.</div>
+        <button class="ar-start-btn" onclick="startAR()">Kamera starten</button>
+      </div>
+
+      <!-- HUD -->
+      <div class="ar-hud-top" id="ar-hud" style="display:none">
+        <div class="ar-pill">
+          <div class="ar-pill-lbl">Blickrichtung</div>
+          <div class="ar-pill-val" id="ar-heading-val">—°</div>
+        </div>
+        <div class="ar-pill">
+          <div class="ar-pill-lbl">Gipfel sichtbar</div>
+          <div class="ar-pill-val" id="ar-visible-count">—</div>
+        </div>
+      </div>
+
+      <!-- Compass -->
+      <div class="ar-compass" id="ar-compass" style="display:none">
+        <svg width="200" height="24" viewBox="0 0 200 24">
+          <line x1="8"   y1="20" x2="8"   y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <line x1="33"  y1="20" x2="33"  y2="10" stroke="rgba(255,255,255,0.4)"  stroke-width="1"/>
+          <text x="33" y="8" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.4)" font-family="DM Sans" id="ar-c-lbl1">N</text>
+          <line x1="58"  y1="20" x2="58"  y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <line x1="83"  y1="20" x2="83"  y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <line x1="100" y1="20" x2="100" y2="8"  stroke="white" stroke-width="1.5"/>
+          <text x="100" y="6" text-anchor="middle" font-size="8" fill="white" font-family="DM Sans" font-weight="500" id="ar-c-center">S</text>
+          <line x1="117" y1="20" x2="117" y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <line x1="142" y1="20" x2="142" y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <line x1="167" y1="20" x2="167" y2="10" stroke="rgba(255,255,255,0.4)"  stroke-width="1"/>
+          <text x="167" y="8" text-anchor="middle" font-size="7" fill="rgba(255,255,255,0.4)" font-family="DM Sans" id="ar-c-lbl2">W</text>
+          <line x1="192" y1="20" x2="192" y2="13" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+          <polygon points="100,22 96,28 104,28" fill="#60a5fa"/>
+        </svg>
+      </div>
+
+      <!-- Peak labels container -->
+      <div class="ar-overlay" id="ar-peaks-overlay"></div>
+
+      <!-- Crosshair -->
+      <div class="ar-crosshair">
+        <svg width="50" height="50" viewBox="0 0 50 50">
+          <line x1="25" y1="3"  x2="25" y2="15" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="25" y1="35" x2="25" y2="47" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="3"  y1="25" x2="15" y2="25" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="35" y1="25" x2="47" y2="25" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="25" cy="25" r="5" fill="none" stroke="white" stroke-width="1.2"/>
+        </svg>
+      </div>
+
+      <!-- Desktop slider (shown when no orientation API) -->
+      <div class="ar-slider-wrap" id="ar-slider-wrap" style="display:none">
+        <div class="ar-slider-lbl">Himmelsrichtung drehen (Desktop-Modus)</div>
+        <input type="range" id="ar-heading-slider" min="0" max="360" value="0"
+          oninput="setManualHeading(this.value)">
+      </div>
+    </div>
+
+  </div>
+
+  <div class="nav">
+    <div class="nav-item on" id="nav-map" onclick="showScreen('s-map','nav-map')">
+      <div class="nav-icon">🗺️</div><div class="nav-label">Karte</div>
+    </div>
+    <div class="nav-item" id="nav-ar" onclick="showScreen('s-ar','nav-ar');initARScreen()">
+      <div class="nav-icon">📷</div><div class="nav-label">AR</div>
+    </div>
+    <div class="nav-item" id="nav-rank" onclick="showScreen('s-ranking','nav-rank');renderRanking(curTab)">
+      <div class="nav-icon">🏆</div><div class="nav-label">Ranking</div>
+    </div>
+    <div class="nav-item" id="nav-profil" onclick="showScreen('s-profil','nav-profil');renderProfil()">
+      <div class="niw">
+        <div class="nav-icon">👤</div>
+        <div class="notif-dot" id="profil-dot"></div>
+      </div>
+      <div class="nav-label">Profil</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ──
+let map, userMarker, userPos = null;
+let peaks = [];
+let myClaims = JSON.parse(localStorage.getItem('joch_v2') || '{}');
+let curTab = 'gipfel';
+
+// ── FALLBACK PEAKS ──
+const FALLBACK = [
+  {id:'f1', name:'Hafelekar',             ele:2334, lat:47.3186, lon:11.3836},
+  {id:'f2', name:'Patscherkofel',         ele:2246, lat:47.2017, lon:11.4608},
+  {id:'f3', name:'Serles',               ele:2717, lat:47.1269, lon:11.2978},
+  {id:'f4', name:'Nockspitze',           ele:2404, lat:47.2208, lon:11.2708},
+  {id:'f5', name:'Saile',               ele:2404, lat:47.2195, lon:11.2725},
+  {id:'f6', name:'Glungezer',           ele:2677, lat:47.2292, lon:11.5375},
+  {id:'f7', name:'Kleiner Solstein',    ele:2637, lat:47.3458, lon:11.3153},
+  {id:'f8', name:'Frau Hitt',           ele:2269, lat:47.3375, lon:11.4222},
+  {id:'f9', name:'Rosskogel',           ele:2645, lat:47.1708, lon:11.2375},
+  {id:'f10',name:'Marchreisenspitze',   ele:2770, lat:47.1542, lon:11.3208},
+  {id:'f11',name:'Habicht',             ele:3277, lat:47.0628, lon:11.3014},
+  {id:'f12',name:'Großer Bettelwurf',   ele:2726, lat:47.3583, lon:11.5875},
+  {id:'f13',name:'Lüsenser Fernerkogel',ele:3298, lat:47.1125, lon:11.0736},
+  {id:'f14',name:'Zuckerhütl',          ele:3507, lat:46.9833, lon:11.0167},
+  {id:'f15',name:'Lisenser Spitze',     ele:3234, lat:47.1042, lon:11.0458},
+  {id:'f16',name:'Kalkkögl',            ele:2686, lat:47.1875, lon:11.2375},
+  {id:'f17',name:'Steingrubenkogel',    ele:2453, lat:47.2542, lon:11.5958},
+  {id:'f18',name:'Kreuzspitze',         ele:2749, lat:47.1833, lon:11.1417},
+  {id:'f19',name:'Sonnjoch',            ele:2457, lat:47.4208, lon:11.7375},
+  {id:'f20',name:'Lampsenspitze',       ele:3082, lat:47.1292, lon:11.1208},
+  {id:'f21',name:'Malgrubenspitze',     ele:3012, lat:47.1375, lon:11.1542},
+  {id:'f22',name:'Ruderhofspitze',      ele:3474, lat:47.0458, lon:11.0625},
+];
+
+// ── SCREENS ──
+function showScreen(id, navId) {
+  // Stop AR if leaving AR screen
+  if(id !== 's-ar' && arRunning) {
+    arRunning = false;
+    if(arAnimFrame) cancelAnimationFrame(arAnimFrame);
+  }
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('on'));
+  if(navId) document.getElementById(navId).classList.add('on');
+  if(id === 's-map') setTimeout(() => map && map.invalidateSize(), 80);
+  // Resume AR if returning to AR screen
+  if(id === 's-ar' && !arRunning && arStream) {
+    arRunning = true;
+    renderAR();
+  }
+}
+
+function showToast(msg, ms=2800) {
+  document.querySelector('.toast')?.remove();
+  const t = Object.assign(document.createElement('div'), {className:'toast', textContent:msg});
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), ms);
+}
+
+// ── LOAD PEAKS ──
+async function loadPeaks() {
+  const query = `[out:json][timeout:20];node["natural"="peak"](47.0,11.0,47.6,11.8);out body;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:query});
+    const data = await res.json();
+    const osm = data.elements
+      .filter(e => e.tags?.name && e.lat && e.lon)
+      .map(e => ({id:String(e.id), name:e.tags.name, ele:e.tags.ele ? parseInt(e.tags.ele) : null, lat:e.lat, lon:e.lon}))
+      .sort((a,b) => (b.ele||0)-(a.ele||0));
+    peaks = osm.length >= 5 ? osm : FALLBACK;
+    document.getElementById('ltxt').textContent = `${peaks.length} Gipfel geladen!`;
+  } catch {
+    peaks = FALLBACK;
+    document.getElementById('ltxt').textContent = `${peaks.length} Gipfel (Offline)`;
+  }
+  setTimeout(hideLoading, 700);
+}
+
+function hideLoading() {
+  const el = document.getElementById('loading');
+  el.style.transition = 'opacity 0.4s';
+  el.style.opacity = '0';
+  setTimeout(() => el.remove(), 400);
+  initMap();
+  startGPS();
+  renderRanking('gipfel');
+  updateProfilDot();
+}
+
+// ── MAP ──
+function initMap() {
+  map = L.map('map', {center:[47.27,11.40], zoom:11, zoomControl:false, attributionControl:false});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    {attribution:'© OSM © CartoDB', maxZoom:19}).addTo(map);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+  L.control.attribution({position:'bottomleft', prefix:false}).addTo(map);
+  peaks.forEach(p => addMarker(p));
+}
+
+// ── MARKERS ──
+function markerClass(peak) {
+  if(myClaims[peak.id]) return 'claimed';
+  if(userPos && dist(userPos.lat, userPos.lon, peak.lat, peak.lon) < 300) return 'nearby';
+  return 'unclaimed';
+}
+
+function addMarker(peak) {
+  const cls = markerClass(peak);
+  const dot = document.createElement('div');
+  dot.className = `joch-dot ${cls}`;
+  dot.textContent = cls === 'unclaimed' ? '·' : '⛰';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'joch-label';
+  lbl.textContent = peak.name;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;width:22px;height:22px;';
+  wrap.appendChild(dot);
+  wrap.appendChild(lbl);
+
+  const leafIcon = L.divIcon({
+    html: wrap.outerHTML,
+    className: '',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -16],
+  });
+
+  const m = L.marker([peak.lat, peak.lon], {icon:leafIcon, zIndexOffset:peak.ele||0}).addTo(map);
+  m.on('click', () => openPopup(peak, m));
+  peak._leaflet = m;
+}
+
+function refreshMarker(peak) {
+  peak._leaflet?.remove();
+  peak._leaflet = null;
+  addMarker(peak);
+}
+
+// ── POPUP ──
+function openPopup(peak, m) {
+  const claimed = myClaims[peak.id];
+  const d = userPos ? Math.round(dist(userPos.lat, userPos.lon, peak.lat, peak.lon)) : null;
+  const canClaim = d !== null && d < 300;
+  const dStr = d !== null ? (d < 1000 ? d+'m' : (d/1000).toFixed(1)+'km') : '?';
+
+  m.bindPopup(`
+    <div class="popup-name">${peak.name}</div>
+    <div class="popup-ele">${peak.ele ? peak.ele+' m' : '?'}</div>
+    <div class="popup-meta">${dStr} entfernt</div>
+    <div class="popup-stats">
+      <div class="pstat"><div class="pstat-val">${claimed ? claimed.visits : '—'}</div><div class="pstat-key">Visits</div></div>
+      <div class="pstat"><div class="pstat-val">${claimed ? fmtDate(claimed.claimedAt) : '—'}</div><div class="pstat-key">Erstes Mal</div></div>
+      <div class="pstat"><div class="pstat-val">${claimed ? fmtDate(claimed.lastVisit||claimed.claimedAt) : '—'}</div><div class="pstat-key">Zuletzt</div></div>
+    </div>
+    ${claimed
+      ? `<button class="popup-btn done" onclick="reClaim('${peak.id}')">✓ Nochmal claimen (${claimed.visits}×)</button>`
+      : canClaim
+        ? `<button class="popup-btn can" onclick="claimPeak('${peak.id}')">⛰ Jetzt claimen!</button>`
+        : `<button class="popup-btn far">📍 Zu weit (${dStr} · max 300m)</button>`
+    }
+  `, {maxWidth:270, minWidth:220}).openPopup();
+}
+
+// ── CLAIM ──
+function claimPeak(id) {
+  const p = peaks.find(x => x.id === id);
+  if(!p) return;
+  myClaims[id] = {name:p.name, ele:p.ele, lat:p.lat, lon:p.lon,
+    claimedAt:Date.now(), visits:1, lastVisit:Date.now()};
+  save();
+  map.closePopup();
+  showToast(`🎉 ${p.name} geclaimed!`);
+  refreshMarker(p);
+  updateProfilDot();
+  renderRanking(curTab);
+}
+
+function reClaim(id) {
+  if(!myClaims[id]) return;
+  myClaims[id].visits++;
+  myClaims[id].lastVisit = Date.now();
+  save();
+  const p = peaks.find(x => x.id === id);
+  map.closePopup();
+  showToast(`⛰ ${p?.name} – Besuch #${myClaims[id].visits}!`);
+  renderRanking(curTab);
+}
+
+function save() { localStorage.setItem('joch_v2', JSON.stringify(myClaims)); }
+
+// ── GPS ──
+function startGPS() {
+  if(!navigator.geolocation) { document.getElementById('gps-txt').textContent='GPS n/a'; return; }
+  navigator.geolocation.watchPosition(pos => {
+    userPos = {lat:pos.coords.latitude, lon:pos.coords.longitude};
+    document.getElementById('gps-dot').classList.add('on');
+    document.getElementById('gps-txt').textContent = 'GPS aktiv';
+    if(!userMarker) {
+      const el = document.createElement('div');
+      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:#60a5fa;border:3px solid white;box-shadow:0 0 0 4px rgba(96,165,250,0.3);';
+      userMarker = L.marker([userPos.lat, userPos.lon],
+        {icon:L.divIcon({html:el.outerHTML, className:'', iconSize:[14,14], iconAnchor:[7,7]})}).addTo(map);
+      map.setView([userPos.lat, userPos.lon], 13);
+    } else {
+      userMarker.setLatLng([userPos.lat, userPos.lon]);
+    }
+    peaks.forEach(p => { if(dist(userPos.lat, userPos.lon, p.lat, p.lon) < 600) refreshMarker(p); });
+  }, () => { document.getElementById('gps-txt').textContent = 'GPS Fehler'; },
+  {enableHighAccuracy:true, maximumAge:8000, timeout:15000});
+}
+
+function centerOnMe() {
+  if(userPos) map.setView([userPos.lat, userPos.lon], 14);
+  else showToast('📍 GPS wird noch gesucht…');
+}
+
+// ── RANKING – nur echte Claims ──
+const rankColors = ['#facc15','#94a3b8','#c2956b','rgba(255,255,255,0.25)','rgba(255,255,255,0.15)'];
+const rankEmoji  = ['🥇','🥈','🥉'];
+
+function renderRanking(tab) {
+  curTab = tab;
+  const lbl = tab==='gipfel' ? 'Gipfel' : tab==='hoehe' ? 'Höhe' : 'Besuche';
+  document.getElementById('rank-sub').textContent = `Deine Claims · ${lbl}`;
+  const clArr = Object.values(myClaims);
+
+  if(clArr.length === 0) {
+    document.getElementById('rank-list').innerHTML =
+      `<div class="empty-state">Noch keine Claims.<br>Geh auf einen Gipfel und claim ihn! 🏔</div>`;
+    return;
+  }
+
+  let rows;
+  if(tab === 'gipfel') {
+    rows = clArr.sort((a,b) => (b.ele||0)-(a.ele||0))
+      .map(c => ({name:c.name, detail:c.ele ? c.ele+'m ü.M.' : '?', score:c.visits||1, lbl:'Besuche'}));
+  } else if(tab === 'hoehe') {
+    rows = clArr.filter(c => c.ele).sort((a,b) => b.ele-a.ele)
+      .map(c => ({name:c.name, detail:fmtDate(c.claimedAt)+' geclaimed', score:c.ele+'m', lbl:'Höhe'}));
+  } else {
+    rows = clArr.sort((a,b) => (b.visits||1)-(a.visits||1))
+      .map(c => ({name:c.name, detail:'zuletzt '+fmtDate(c.lastVisit||c.claimedAt), score:c.visits||1, lbl:'Besuche'}));
+  }
+
+  document.getElementById('rank-list').innerHTML = rows.map((r,i) => `
+    <div class="rank-item">
+      <div class="rank-pos" style="color:${rankColors[Math.min(i,4)]}">${rankEmoji[i]||i+1+'.'}</div>
+      <div class="rank-av" style="background:rgba(37,99,235,0.15);">⛰</div>
+      <div class="rank-info">
+        <div class="rank-name">${r.name}</div>
+        <div class="rank-detail">${r.detail}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="rank-score" style="color:#60a5fa">${r.score}</div>
+        <div class="rank-lbl">${r.lbl}</div>
+      </div>
+    </div>`).join('');
+}
+
+function switchTab(tab, el) {
+  document.querySelectorAll('.rtab').forEach(t => t.classList.remove('on'));
+  el.classList.add('on');
+  renderRanking(tab);
+}
+
+// ── PROFIL ──
+function renderProfil() {
+  const clArr = Object.values(myClaims).sort((a,b) => (b.claimedAt||0)-(a.claimedAt||0));
+  const gipfel = clArr.length;
+  const besuche = clArr.reduce((s,c) => s+(c.visits||1), 0);
+  const maxEle = clArr.filter(c => c.ele).reduce((m,c) => Math.max(m,c.ele), 0);
+  document.getElementById('p-gipfel').textContent = gipfel;
+  document.getElementById('p-besuche').textContent = besuche;
+  document.getElementById('p-hoehe').textContent = maxEle ? maxEle+'m' : '—';
+  document.getElementById('claims-list').innerHTML = gipfel === 0
+    ? '<div class="empty-state">Noch keine Claims.<br>Geh auf einen Gipfel! 🏔</div>'
+    : clArr.map(c => `
+      <div class="claim-row">
+        <div class="claim-ico">⛰</div>
+        <div>
+          <div class="claim-name">${c.name}</div>
+          <div class="claim-meta">${fmtDate(c.claimedAt)} · ${c.visits||1}× besucht</div>
+        </div>
+        <div class="claim-ele">${c.ele ? c.ele+'m' : '?'}</div>
+      </div>`).join('');
+}
+
+function updateProfilDot() {
+  document.getElementById('profil-dot').style.display =
+    Object.keys(myClaims).length > 0 ? 'block' : 'none';
+}
+
+// ── UTILS ──
+function dist(la1,lo1,la2,lo2) {
+  const R=6371000, dLa=(la2-la1)*Math.PI/180, dLo=(lo2-lo1)*Math.PI/180;
+  const a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function fmtDate(ts) {
+  return new Date(ts).toLocaleDateString('de-AT',{day:'2-digit',month:'2-digit',year:'2-digit'});
+}
+
+
+// ════════════════════════════════
+// AR
+// ════════════════════════════════
+let arHeading = 0;        // current compass heading (degrees)
+let arStream = null;      // camera stream
+let arRunning = false;
+let arAnimFrame = null;
+let hasOrientationAPI = false;
+const AR_FOV = 60;        // horizontal field of view in degrees
+
+function initARScreen() {
+  // called every time AR tab is opened
+  const nocam = document.getElementById('ar-nocam');
+  if(arStream) {
+    nocam.style.display = 'none';
+    document.getElementById('ar-hud').style.display = 'flex';
+    document.getElementById('ar-compass').style.display = 'block';
+  }
+}
+
+async function startAR() {
+  // Request camera
+  try {
+    arStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment', width:{ideal:1280}, height:{ideal:720}},
+      audio: false
+    });
+    document.getElementById('ar-video').srcObject = arStream;
+    document.getElementById('ar-nocam').style.display = 'none';
+    document.getElementById('ar-hud').style.display = 'flex';
+    document.getElementById('ar-compass').style.display = 'block';
+  } catch(e) {
+    showToast('📷 Kamera-Zugriff verweigert');
+    return;
+  }
+
+  // Try device orientation (compass) – works on mobile
+  if(typeof DeviceOrientationEvent !== 'undefined') {
+    // iOS 13+ needs permission
+    if(typeof DeviceOrientationEvent.requestPermission === 'function') {
+      try {
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if(perm === 'granted') setupOrientation();
+        else showDesktopSlider();
+      } catch { showDesktopSlider(); }
+    } else {
+      setupOrientation();
+    }
+  } else {
+    showDesktopSlider();
+  }
+
+  arRunning = true;
+  renderAR();
+}
+
+function setupOrientation() {
+  hasOrientationAPI = true;
+  window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  window.addEventListener('deviceorientation', onOrientation, true);
+}
+
+function onOrientation(e) {
+  let h = 0;
+  if(e.webkitCompassHeading !== undefined) {
+    // iOS – webkitCompassHeading is 0=N, clockwise
+    h = e.webkitCompassHeading;
+  } else if(e.absolute && e.alpha !== null) {
+    h = 360 - e.alpha;
+  } else if(e.alpha !== null) {
+    h = 360 - e.alpha;
+  }
+  arHeading = (h + 360) % 360;
+}
+
+function showDesktopSlider() {
+  document.getElementById('ar-slider-wrap').style.display = 'block';
+}
+
+function setManualHeading(val) {
+  arHeading = parseFloat(val);
+}
+
+// Main AR render loop
+function renderAR() {
+  if(!arRunning) return;
+  arAnimFrame = requestAnimationFrame(renderAR);
+
+  if(!userPos) return;
+
+  const overlay = document.getElementById('ar-peaks-overlay');
+  const W = overlay.clientWidth;
+  const H = overlay.clientHeight;
+
+  // Update HUD
+  document.getElementById('ar-heading-val').textContent = Math.round(arHeading) + '°';
+  updateCompassLabels(arHeading);
+
+  // Which peaks are in FOV?
+  const inView = [];
+  peaks.forEach(peak => {
+    const bearing = getBearing(userPos.lat, userPos.lon, peak.lat, peak.lon);
+    const d = dist(userPos.lat, userPos.lon, peak.lat, peak.lon);
+    if(d > 80000) return; // skip peaks > 80km away
+
+    // Angular difference from center heading
+    let diff = bearing - arHeading;
+    if(diff > 180)  diff -= 360;
+    if(diff < -180) diff += 360;
+
+    if(Math.abs(diff) < AR_FOV / 2 + 5) {
+      // x position: center = W/2, left edge = 0, right edge = W
+      const x = W / 2 + (diff / (AR_FOV / 2)) * (W / 2);
+      // y position: put labels in upper third, vary slightly by distance
+      const yBase = H * 0.25;
+      const y = yBase + Math.min(d / 2000, 80);
+      inView.push({peak, x, y, d, diff});
+    }
+  });
+
+  document.getElementById('ar-visible-count').textContent = inView.length;
+
+  // Clear and redraw labels
+  overlay.innerHTML = '';
+  inView.forEach(({peak, x, y, d}) => {
+    const dStr = d < 1000 ? Math.round(d)+'m' : (d/1000).toFixed(1)+'km';
+    const claimed = !!myClaims[peak.id];
+    const el = document.createElement('div');
+    el.className = 'ar-peak-label';
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.innerHTML = `
+      <div class="ar-peak-card${claimed?' claimed':''}">
+        <div class="ar-peak-nm">${peak.name}${claimed?' 🚩':''}</div>
+        <div class="ar-peak-el">${peak.ele ? peak.ele+'m' : '?'} · ${dStr}</div>
+      </div>
+      <div class="ar-peak-line"></div>
+      <div class="ar-peak-dot"></div>
+    `;
+    overlay.appendChild(el);
+  });
+}
+
+// Compass direction labels
+const DIRS = ['N','NO','O','SO','S','SW','W','NW','N'];
+function headingToDir(h) { return DIRS[Math.round(h / 45) % 8]; }
+
+function updateCompassLabels(h) {
+  const c = Math.round(h);
+  const l1 = (c - 45 + 360) % 360;
+  const l2 = (c + 45) % 360;
+  document.getElementById('ar-c-center').textContent = headingToDir(c);
+  document.getElementById('ar-c-lbl1').textContent = headingToDir(l1);
+  document.getElementById('ar-c-lbl2').textContent = headingToDir(l2);
+}
+
+// Bearing between two GPS points (degrees, 0=N, clockwise)
+function getBearing(lat1, lon1, lat2, lon2) {
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const la1 = lat1 * Math.PI / 180;
+  const la2 = lat2 * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(la2);
+  const x = Math.cos(la1)*Math.sin(la2) - Math.sin(la1)*Math.cos(la2)*Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+// AR stop/start is now handled inside showScreen directly (see above)
+
+// ── BOOT ──
+loadPeaks();
+</script>
+</body>
+</html>
